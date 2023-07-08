@@ -1,0 +1,38 @@
+path:
+  to_save_model: best_model.pkl
+  to_save_predicts: sample_submission.csv
+
+split:
+  seed: 1
+  test_size: 0.1
+  shuffle: true
+  random_state: 1
+
+train:
+  scoring: f1_micro
+  n_cross_validation: 3
+  LogisticRegression:
+    C: 1
+    l1_ratio: 0.2
+    solver: saga
+    random_state: 11
+    penalty: elasticnet
+  TfidfVectorizer:
+    min_df: 1
+    max_df: 0.25
+    ngram_range:
+      - 1
+      - 2
+
+  param_grid:
+    model__C:
+      - 0.1
+      - 10
+      - 15
+      - 20
+    model__solver:
+      - liblinear
+      - saga
+    model__penalty:
+      - l1
+      - l2
