@@ -137,12 +137,10 @@ def process(cfg: DictConfig):
     positive_tweets = twitter_samples.strings("positive_tweets.json")
     negative_tweets = twitter_samples.strings("negative_tweets.json")
 
-    train_data = pd.DataFrame(
-        {
-            "text": positive_tweets + negative_tweets,
-            "target": [1] * len(positive_tweets) + [0] * len(negative_tweets),
-        }
-    )
+    train_data = pd.DataFrame({
+        "text": positive_tweets + negative_tweets,
+        "target": [1] * len(positive_tweets) + [0] * len(negative_tweets),
+    })
 
     X_train, X_test, y_train, y_test = train_test_split(
         train_data.text.values,
