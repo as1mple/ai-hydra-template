@@ -1,26 +1,19 @@
 import logging
-import os
-from functools import partial
-from typing import List, Callable
+from typing import Callable
 
 import hydra
-import joblib
 import nltk
-import numpy as np
 import pandas as pd
-import re
-import string
-import unidecode
 import warnings
-from nltk.corpus import stopwords, twitter_samples
+from nltk.corpus import twitter_samples
 from omegaconf import DictConfig
-from sklearn.base import BaseEstimator
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer
+from sklearn.model_selection import train_test_split
+
+from modules.preprocessing import preprocessing, remove_stopwords, array_to_str
+from modules.pipeline import pipeline_preprocess, build_pipeline
+from modules.model import train_model, save_output
+
 
 nltk.download("twitter_samples")
 
@@ -38,96 +31,6 @@ def logger(func: Callable) -> Callable:
         return result
 
     return wrapper
-
-
-def preprocessing(text: str) -> str:
-    lowercase_text = text.lower()
-    text_without_diacritics = unidecode.unidecode(lowercase_text)
-    text_without_brackets = re.sub(r"\[.*?\]", "", text_without_diacritics)
-    text_without_urls = re.sub(r"https?://\S+|www\.\S+", "", text_without_brackets)
-    text_without_tags = re.sub(r"<.*?>+", "", text_without_urls)
-    text_without_punctuation = re.sub(r"[{}]".format(re.escape(string.punctuation)), "", text_without_tags)
-    text_without_newlines = re.sub(r"\n", "", text_without_punctuation)
-    text_without_digits = re.sub(r"\w*\d\w*", "", text_without_newlines)
-
-    return text_without_digits
-
-
-def remove_stopwords(text: List[str]) -> List[str]:
-    stop_words = stopwords.words("english")
-    return [w for w in text if w not in stop_words]
-
-
-def array_to_str(text: List[str]) -> str:
-    return " ".join(text)
-
-
-def pipeline_preprocess(text: List[str], process) -> List[str]:
-    for proc in process:
-        text = list(map(proc, text))
-    return text
-
-
-@logger
-def build_pipeline(cfg: DictConfig, processing_pipeline: List[Callable]) -> Pipeline:
-    log.info("Building pipeline...")
-
-    prep_features = Pipeline(
-        steps=[
-            ("Preprocessing", FunctionTransformer(partial(pipeline_preprocess, process=processing_pipeline))),
-            ("tfidf", TfidfVectorizer(
-                min_df=cfg.train.TfidfVectorizer.min_df,
-                max_df=cfg.train.TfidfVectorizer.max_df,
-                ngram_range=tuple(cfg.train.TfidfVectorizer.ngram_range)
-            )),
-        ]
-    )
-
-    model = LogisticRegression(
-        C=cfg.train.LogisticRegression.C,
-        l1_ratio=cfg.train.LogisticRegression.l1_ratio,
-        solver=cfg.train.LogisticRegression.solver,
-        random_state=cfg.train.LogisticRegression.random_state,
-        penalty=cfg.train.LogisticRegression.penalty,
-    )
-    clf = Pipeline(steps=[("preprocessor", prep_features), ("model", model)])
-
-    log.info("Pipeline construction completed.")
-    return clf
-
-
-@logger
-def train_model(
-    model: BaseEstimator,
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    param_grid: dict,
-    n_cross_validation: int,
-    scoring: str,
-) -> BaseEstimator:
-    log.info("Performing grid search for model training...")
-    grid_search = GridSearchCV(model, param_grid, cv=n_cross_validation, scoring=scoring)
-    grid_search.fit(X_train, y_train)
-
-    log.info(f"Best score: {grid_search.best_score_}")
-
-    return grid_search.best_estimator_
-
-
-def save_output(output_data, path_to_output_dir, filename, logger=None) -> None:
-    output_dir = os.path.join(path_to_output_dir, "output")
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, filename)
-
-    if isinstance(output_data, pd.DataFrame):
-        output_data.to_csv(output_path, index=False)
-    elif isinstance(output_data, BaseEstimator):
-        joblib.dump(output_data, output_path)
-    else:
-        raise ValueError("Unsupported output_data type.")
-
-    if logger:
-        logger.info(f"Output saved at: {output_path}")
 
 
 @hydra.main(version_base=None, config_path="../config", config_name="config")
@@ -153,7 +56,8 @@ def process(cfg: DictConfig):
     tokenizer = nltk.tokenize.RegexpTokenizer(r"\w+")
     preprocess = [preprocessing, tokenizer.tokenize, remove_stopwords, array_to_str]
 
-    pipeline = build_pipeline(cfg, preprocess)
+    log.info("Building pipeline...")
+    pipeline = build_pipeline(cfg, preprocess, pipeline_preprocess)
 
     best_estimator = train_model(
         pipeline,
@@ -186,4 +90,7 @@ def process(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    build_pipeline = logger(build_pipeline)
+    train_model = logger(train_model)
+
     process()
